@@ -2,7 +2,7 @@
 
 ## Repository status
 
-This branch is the working branch for mid-evaluation artifacts. The existing `main` branch is unchanged. The existing PPT is not used as a source for project content.
+This branch is the working branch for mid-evaluation artifacts. The existing `main` branch is unchanged. The existing PPT is not used as a source for project content; a fresh slide outline is available at `presentation/mid-evaluation-outline.md`.
 
 ## Proposed directory structure
 
@@ -21,9 +21,8 @@ This branch is the working branch for mid-evaluation artifacts. The existing `ma
 │   ├── database-devops.md
 │   ├── database-setup-and-demo.md
 │   └── verification-notes.md
-├── tests/
-│   └── test-plan.md
-└── presentation/  # existing PPT retained, not treated as source
+├── tests/test-plan.md
+└── presentation/mid-evaluation-outline.md
 ```
 
 ## Local PostgreSQL workflow
@@ -31,13 +30,13 @@ This branch is the working branch for mid-evaluation artifacts. The existing `ma
 1. Install PostgreSQL 15+ and ensure `psql` is available.
 2. Create a disposable database, e.g. `charity_portal_dev`.
 3. Apply scripts in order: `psql -v ON_ERROR_STOP=1 -d charity_portal_dev -f database/schema.sql`, then `psql -v ON_ERROR_STOP=1 -d charity_portal_dev -f database/workflows.sql`.
-4. Inspect object creation using `\dt`, `\d+ campaign`, and `\df`.
+4. Inspect object creation using `\\dt`, `\\d+ campaign`, and `\\df`.
 5. Execute test cases from `tests/test-plan.md` and record real outcomes.
 6. Make schema changes in a feature branch, review the diff, test against a clean DB, then merge deliberately.
 
 ## Safety practices
 
-- Never commit database passwords, payment-provider secrets, real donor details, or beneficiary identity documents.
+- Never commit passwords, payment-provider secrets, real donor details, or beneficiary identity documents.
 - Use synthetic sample data only.
 - Keep DDL changes version-controlled and review destructive changes carefully.
 - Preserve original donations; record refunds as compensating events.
