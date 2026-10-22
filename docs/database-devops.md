@@ -2,7 +2,7 @@
 
 ## Repository status
 
-This branch is the working branch for mid-evaluation artifacts. The existing `main` branch is left unchanged. The existing PPT is intentionally not used as a source for project content.
+This branch is the working branch for mid-evaluation artifacts. The existing `main` branch is unchanged. The existing PPT is not used as a source for project content.
 
 ## Proposed directory structure
 
@@ -10,28 +10,30 @@ This branch is the working branch for mid-evaluation artifacts. The existing `ma
 .
 ├── README.md
 ├── database/
-│   └── schema.sql
+│   ├── schema.sql
+│   └── workflows.sql
 ├── docs/
 │   ├── project-brief.md
 │   ├── er-model.md
 │   ├── relational-schema.md
 │   ├── normalization-worksheet.md
 │   ├── mid-evaluation-report.md
-│   └── database-devops.md
+│   ├── database-devops.md
+│   ├── database-setup-and-demo.md
+│   └── verification-notes.md
 ├── tests/
 │   └── test-plan.md
-└── presentation/              # existing PPT kept, not treated as deliverable source
+└── presentation/  # existing PPT retained, not treated as source
 ```
 
 ## Local PostgreSQL workflow
 
-1. Install PostgreSQL 15+ and ensure the `psql` client is available.
+1. Install PostgreSQL 15+ and ensure `psql` is available.
 2. Create a disposable database, e.g. `charity_portal_dev`.
-3. Run the schema: `psql -v ON_ERROR_STOP=1 -d charity_portal_dev -f database/schema.sql`.
-4. Inspect object creation in `psql` using `\dt` and `\d+ campaign`.
-5. Run positive and negative test cases from `tests/test-plan.md`.
-6. Record actual outcomes and errors. Do not mark a test passed until it has been run.
-7. Make schema changes in a feature branch, review the diff, test on a clean database, then merge deliberately.
+3. Apply scripts in order: `psql -v ON_ERROR_STOP=1 -d charity_portal_dev -f database/schema.sql`, then `psql -v ON_ERROR_STOP=1 -d charity_portal_dev -f database/workflows.sql`.
+4. Inspect object creation using `\dt`, `\d+ campaign`, and `\df`.
+5. Execute test cases from `tests/test-plan.md` and record real outcomes.
+6. Make schema changes in a feature branch, review the diff, test against a clean DB, then merge deliberately.
 
 ## Safety practices
 
@@ -39,12 +41,12 @@ This branch is the working branch for mid-evaluation artifacts. The existing `ma
 - Use synthetic sample data only.
 - Keep DDL changes version-controlled and review destructive changes carefully.
 - Preserve original donations; record refunds as compensating events.
-- Make fund-ledger and audit history append-only using database permissions and/or triggers.
-- Validate campaign status and available funds in one transaction with an appropriate locking strategy; simple row constraints cannot enforce aggregate balances.
+- Keep fund-ledger and audit history append-only using triggers and database role privileges.
+- Validate campaign status and available funds transactionally with a consistent locking strategy.
 
 ## Current limitations
 
+- This branch contains a proposed schema and workflow helpers, but they have not been executed or tested in this conversation.
 - No CI workflow is claimed to exist or to have run.
-- Transactional functions/triggers for campaign eligibility, beneficiary verification, and fund balance locking are still required.
-- The schema needs execution on PostgreSQL and verification of actual behavior.
-- Database migrations, seed fixtures, and automated integration tests should be added after the first successful local schema run.
+- Test results remain NOT RUN until executed against PostgreSQL.
+- Production deployment would require a carefully limited database role, verified payment integration, stronger purpose-code enforcement, currency consistency checks, and explicit handling for refunds after funds have already been spent.
