@@ -1,66 +1,46 @@
 # Charity Donation & Beneficiary Portal
 
-A DBMS Problem-Based Learning (PBL) project for a database-driven Charity Donation & Beneficiary Portal.
+A DBMS Problem-Based Learning project for B.Tech CSE Semester III, DBMS (CSL0311).
 
-## Project Overview
+## Project
 
-The system is designed to manage the complete lifecycle of charitable giving — from donor registration and campaign creation to pledges, actual donations, fund tracking, and disbursement to verified beneficiaries.
+The portal's database design covers organizations and campaigns, donor pledges and donations, beneficiary verification, disbursements, audit history, and campaign-specific fund restrictions. It is designed to keep pledged amounts separate from cleared donations and to preserve refund/reversal history.
 
-The main goal is to maintain transparency and accountability by keeping donation, fund-disbursement, refund, and audit information traceable.
+## Design artifacts
 
-## Main Entities
+- [Project brief](docs/project-brief.md)
+- [ER model and relationship cardinalities](docs/er-model.md)
+- [Relational schema and selected data dictionary](docs/relational-schema.md)
+- [Normalization worksheet](docs/normalization-worksheet.md)
+- [Mid-Evaluation Report draft](docs/mid-evaluation-report.md)
+- [Database DevOps workflow](docs/database-devops.md)
+- [Database test plan](tests/test-plan.md)
+- [PostgreSQL physical schema](database/schema.sql)
 
-The database is designed around 8 main entities:
+## Repository status
 
-- **Donor** — stores donor information and consent status.
-- **Organization** — represents the organization responsible for campaigns.
-- **Campaign** — represents a fundraising campaign and tracks its target and fund status.
-- **Pledge** — records a donor's promise to contribute to a campaign.
-- **Donation** — records the actual payment, transaction, receipt, and refund information.
-- **Beneficiary** — stores verified individuals or groups who receive funds.
-- **Disbursement** — records payments made from campaign funds to beneficiaries.
-- **Audit Log** — records important actions for traceability and accountability.
+The `pbl-mid-evaluation` branch contains a proposed database design and supporting documentation. The pre-existing `main` branch was left unchanged, and `presentation/DBMS.pptx` was not used as a source for these artifacts.
 
-## Key Relationships
+**Important:** the SQL schema and workflow are not yet represented as successfully executed or fully tested. The campaign-state gate, beneficiary-verification gate, aggregate fund-availability lock, refund ledger workflow, and append-only protections are called out as transactional follow-up work. See the SQL comments and test plan. Do not describe those rules as implemented until the guards have been added and tested.
 
-- Organization **manages** Campaigns — 1:N
-- Donor **makes** Pledges — 1:N
-- Donor **gives** Donations — 1:N
-- Campaign **receives** Pledges — 1:N
-- Campaign **receives** Donations — 1:N
-- Pledge is **fulfilled by** Donation — 1:1
-- Campaign **funds** Disbursements — 1:N
-- Beneficiary **receives** Disbursements — 1:N
+## Database engine
 
-## Database Design
+The current DDL targets PostgreSQL 15+. Create a disposable database and execute:
 
-The project follows the flow:
+```bash
+psql -v ON_ERROR_STOP=1 -d charity_portal_dev -f database/schema.sql
+```
 
-**ER Model → Relational Schema → Database Tables**
+Then run and document tests from `tests/test-plan.md`. Use synthetic data only; never commit passwords, live payment secrets, or real beneficiary identity records.
 
-The ER model contains the conceptual structure of the system. The relational schema converts entities into tables, attributes into columns, key attributes into primary keys, and 1:N relationships into foreign keys. M:N relationships are represented using a separate relation.
+## Academic information
 
-## Important Business Rules
+- Subject: Database Management Systems (DBMS)
+- Subject code: CSL0311
+- Programme: B.Tech CSE
+- Semester: III
+- Project type: PbBL
 
-- Every entity has a unique primary key.
-- Only active/approved campaigns can receive pledges or donations.
-- Donation amounts must be positive.
-- Online donations maintain transaction references and receipt numbers.
-- Campaigns track cleared funds and disbursed totals separately.
-- Only verified beneficiaries can receive disbursements.
-- Total disbursements for a campaign cannot exceed its cleared funds.
-- Refunds are recorded without deleting the original donation record.
-- Important system actions are recorded in the Audit Log.
+## Team details
 
-## Project Presentation
-
-The project presentation is available in the [`presentation`](./presentation) folder.
-
-## Academic Information
-
-- **Subject:** Database Management System (DBMS)
-- **Subject Code:** CSL0311
-- **Course:** B.Tech
-- **Branch:** CSE
-- **Semester:** 3
-- **Project Type:** Problem-Based Learning (PBL)
+Add team member names, roll numbers, and actual contributions before submission. Only report tests and features that have been verified.
