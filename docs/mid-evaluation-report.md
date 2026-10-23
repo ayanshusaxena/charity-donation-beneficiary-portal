@@ -4,11 +4,11 @@
 **Course:** Database Management Systems (CSL0311)  
 **Programme:** B.Tech CSE, Semester III  
 **Evaluation stage:** Mid-term PbBL evaluation  
-**Status:** Draft report for team review. Fill in all team-member names, roll numbers, faculty details, and only claim implementation/testing that the team has actually completed.
+**Status:** Draft for team review. Schema/workflow setup and the rollback-based regression script have been executed on PostgreSQL 18.6; separate-session F22/F27 outcomes are recorded. See `database-execution-report.md` and `../tests/test-plan.md` for case-level evidence, earlier failures, and remaining gaps. Fill in team details before submission.
 
 ## 1. Abstract
 
-The Charity Donation & Beneficiary Portal is a database-oriented project intended to record charitable organizations, fundraising campaigns, donor pledges, actual donations, beneficiary verification, and disbursements. Its database design emphasizes traceability and integrity: pledges are distinct from cleared donations, original donation rows are retained when a refund occurs, campaign-specific fund restrictions are modeled explicitly, and material business events are auditable.
+The Charity Donation & Beneficiary Portal is a database-oriented project intended to record charitable organizations, fundraising campaigns, donor pledges, actual donations, beneficiary verification, and disbursements. Its proposed database design emphasizes traceability and integrity: pledges are distinct from cleared donations, original donation rows are retained when a refund occurs, campaign-specific fund restrictions are modeled explicitly, and material business events are audited by workflow triggers. The schema and workflow scripts and rollback regression have execution evidence; coverage is limited to the assertions and cases listed in the test plan.
 
 ## 2. Problem definition
 
@@ -30,7 +30,7 @@ A charity-funding workflow can become difficult to verify when donor commitments
 
 The deliverable is a database design and demonstration foundation. It does not claim to provide a live payment gateway or production identity-verification service. A donation transaction reference represents recorded payment-provider metadata; funds should be counted as available only after successful clearing. Anonymous donations reference an explicit anonymous donor record rather than leaving donor_id null.
 
-The current simplified relational model permits at most one donation per pledge. If the team requires partial fulfilment or multiple donations per pledge, a PLEDGE_DONATION associative table should replace this simplified relationship.
+This evaluation model supports multiple donations per pledge. Only cleared donation amounts net of recorded refunds count toward fulfillment; clearing rejects over-fulfillment. Currency is INR-only with no conversion model.
 
 ## 5. Requirements analysis
 
@@ -61,7 +61,7 @@ Refer to `er-model.md` for the ER model and `relational-schema.md` for relation 
 - Campaign 1:N Pledge
 - Donor 1:N Donation
 - Campaign 1:N Donation
-- Pledge 0..1:0..1 Donation in the current simplified model
+- Pledge 1:N Donation; each donation may optionally refer to one pledge
 - Campaign 1:N Fund Restriction
 - Donation M:N Fund Restriction through Donation Restriction
 - Campaign 1:N Disbursement
@@ -74,45 +74,33 @@ The proposed relations are organized to reduce repeating groups and update anoma
 
 ## 8. Physical design and constraints
 
-The initial SQL uses PostgreSQL syntax, identity primary keys, `NUMERIC(14,2)` for monetary values, `TIMESTAMPTZ` for event times, foreign keys, uniqueness conditions, status domains, positive-amount checks, and indexes for commonly queried relationships. JSONB is used only for optional snapshots/contact data, not to replace core relational entities.
+The current SQL uses INR checks, refund and refund-scope event relations, purpose category codes, consent history, pledge fulfillment workflows, and audit triggers. It uses PostgreSQL 15+ features. Schema/workflow execution is recorded in the execution report; this does not establish coverage of every constraint or runtime path.
 
-The schema alone does not fully enforce all business rules. The team must explain that cross-row balance checks and state transitions belong in atomic transactions or stored procedures. Ledger/audit append-only behavior also needs database privileges or triggers. See `../database/schema.sql` and its implementation notes.
+Campaign eligibility, pledge over-fulfillment, allocation totals, refund scopes, and payout balances are checked in trigger/function workflows with row locks. Refund events, scope reversals, metadata, and audit writes share a transaction. Audit actor identity comes from application-supplied transaction-local context. A controlled purpose code cannot prove real-world expense compliance. Direct DML must be restricted; triggers are not tamper-proof against table owners/superusers. See `design-decisions.md` for decisions and limitations.
 
 ## 9. Database DevOps / repository workflow
 
 The proposed repository layout separates database scripts, design documentation, tests, and presentation assets. SQL should be version-controlled; changes should be made on a development branch, reviewed, and tested against a disposable database before being treated as complete. Setup instructions, assumptions, schema version, and test evidence should be recorded. This report describes a proposed workflow; do not claim an automated CI pipeline exists unless one is configured and has run successfully.
 
-## 10. Testing plan
+## 10. Testing plan and actual results
 
-The following test scenarios should be run and results added before final submission:
+The test plan and rollback-based SQL regression file are under `../tests/`. As recorded in the execution report, the single-session regression script completed successfully on `charity_portal_financial_review` and separate-session F22/F27 concurrency runs completed with their final invariants and cleanup verified. F21 remains PARTIAL because some failure paths lack null-reference and paid-time assertions. The test plan is the current case-level status source; a successful aggregate script run does not independently establish unasserted behavior.
 
-| Test | Expected result |
-|---|---|
-| Insert donation with amount 0 or negative | Rejected by CHECK constraint |
-| Duplicate online transaction reference | Rejected by UNIQUE constraint |
-| Successful online donation missing receipt/reference | Rejected by CHECK constraint |
-| Insert campaign with end date before start date | Rejected by CHECK constraint |
-| Donation to unapproved/inactive campaign | Rejected by transaction-level workflow guard (to be implemented/tested) |
-| Disbursement to unverified beneficiary | Rejected by transaction-level workflow guard (to be implemented/tested) |
-| Disbursement greater than cleared available funds | Rejected by locked balance check (to be implemented/tested) |
-| Refund donation | Original donation remains; compensating ledger event is added |
-| Review audit/ledger history | Prior events remain traceable; deletion/update prevention must be configured and tested |
-
-**Do not mark a test as passed until the team has actually run it.**
+The cases include campaign eligibility, unique payment identifiers, allocation limits, partial/full/failed refunds, after-spend refunds, purpose compatibility, payout caps, audit generation, and separate-session concurrency. The regression SQL uses synthetic fixtures and ends with `ROLLBACK`. Earlier failed attempts and their later corrections remain in the execution report.
 
 ## 11. Current status and limitations
 
-Repository review found a README describing the project and an existing presentation file. The database scripts and design artifacts in the `pbl-mid-evaluation` branch are being introduced as a proposed design baseline. They should be reviewed by the team, executed on PostgreSQL, and updated based on actual test results before being described as a validated implementation.
+The working branch is `pbl-mid-evaluation`; existing changes were preserved. Runtime evidence and its boundaries are recorded in the execution report and test plan. `charity_portal_test` was not used for these executions and must not be treated as a disposable target. Remaining limitations include caller-supplied actor context, purpose codes not proving actual expenditure, owner/superuser bypass, no debt model for post-spend refunds, and F21's remaining assertion gap. The supplied presentation file was not used or edited.
 
 ## 12. Conclusion
 
-The proposed model provides a normalized foundation for tracking charity campaigns, donor commitments, actual received funds, restrictions, disbursements, reversals, and audit events. The key next milestone is to execute and test the schema, implement transactional guards for campaign status and fund availability, produce diagram exports, and prepare a presentation consistent with verified progress.
+The branch contains the chosen INR-only accounting model, explicit refund scopes, coded purposes, audit event generation, and partial pledge fulfillment. Schema/workflow setup, regression execution, and F22/F27 concurrency evidence are recorded. Reconcile the documented remaining gaps before further testing or application integration. Production readiness is not claimed.
 
 ## Appendix: team completion fields
 
 - Team member names and roll numbers: **[Fill in]**
 - Faculty / section: **[Fill in]**
-- DBMS engine and version actually tested: **[Fill in]**
-- Date schema was executed: **[Fill in]**
-- Test evidence / screenshots: **[Add after testing]**
+- DBMS engine and version actually tested: PostgreSQL 18.6 (see execution report for individual database runs)
+- Date schema was executed: 2026-10-22 (see execution report)
+- Execution evidence: `database-execution-report.md` and `../tests/test-plan.md`; add presentation screenshots only if required by the evaluation.
 - Individual contributions: **[Fill in truthfully]**

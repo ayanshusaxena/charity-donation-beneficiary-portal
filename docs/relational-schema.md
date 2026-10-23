@@ -1,64 +1,58 @@
 # Relational Schema and Data Dictionary
 
-**Status:** Proposed logical/physical design for evaluation. SQL implementation is in `database/schema.sql`.
+**Status:** Logical/physical design aligned to the current SQL. Schema/workflow setup and regression execution are recorded in `database-execution-report.md`; individual coverage and remaining gaps are in `../tests/test-plan.md`.
 
-Notation: `PK` = primary key, `FK` = foreign key, `UQ` = unique, `NN` = not null.
+Notation: `PK` primary key; `FK` foreign key; `UQ` unique; `NN` not null.
 
-## Relational schema
+## Relations
 
-- **ORGANIZATION**(`organization_id PK`, organization_name NN, registration_ref UQ, email, phone, created_at)
-- **DONOR**(`donor_id PK`, display_name, email, phone, is_anonymous_record NN, created_at)
-- **CAMPAIGN**(`campaign_id PK`, `organization_id FK → ORGANIZATION`, campaign_name NN, purpose NN, target_amount NN, start_date NN, end_date NN, approval_status NN, campaign_status NN, approved_by, approved_at, created_at)
-- **PLEDGE**(`pledge_id PK`, `donor_id FK → DONOR`, `campaign_id FK → CAMPAIGN`, pledged_amount NN, pledged_at, pledge_status NN, notes)
-- **DONATION**(`donation_id PK`, `donor_id FK → DONOR`, `campaign_id FK → CAMPAIGN`, `pledge_id UQ/FK → PLEDGE`, donation_amount NN, currency NN, payment_method NN, payment_status NN, transaction_reference UQ, receipt_number UQ, donated_at, cleared_at, `refund_of_donation_id FK → DONATION`, refund_amount, refund_recorded_at)
-- **BENEFICIARY**(`beneficiary_id PK`, beneficiary_name NN, beneficiary_type NN, verification_status NN, verification_reference, verified_by, verified_at, contact_details, created_at)
-- **FUND_RESTRICTION**(`restriction_id PK`, `campaign_id FK → CAMPAIGN`, restriction_code NN, restriction_name NN, approved_purpose NN, is_restricted NN, created_at; UQ(campaign_id, restriction_code))
-- **DONATION_RESTRICTION**(`donation_id PK/FK → DONATION`, `restriction_id PK/FK → FUND_RESTRICTION`, restricted_amount NN)
-- **DISBURSEMENT**(`disbursement_id PK`, `campaign_id FK → CAMPAIGN`, `beneficiary_id FK → BENEFICIARY`, `restriction_id`, disbursement_amount NN, approved_purpose NN, approval_status NN, disbursement_status NN, approved_by, approved_at, payment_reference UQ, requested_at, paid_at; composite FK(campaign_id, restriction_id) → FUND_RESTRICTION(campaign_id, restriction_id))
-- **AUDIT_LOG**(`audit_id PK`, actor_id NN, action_type NN, entity_type NN, entity_id NN, occurred_at NN, old_values, new_values, reason, request_id)
-- **FUND_LEDGER_ENTRY**(`ledger_entry_id PK`, `campaign_id FK → CAMPAIGN`, `restriction_id`, `donation_id FK → DONATION`, `disbursement_id FK → DISBURSEMENT`, entry_type NN, amount_delta NN, currency NN, occurred_at NN, external_reference, notes; composite FK(campaign_id, restriction_id) → FUND_RESTRICTION(campaign_id, restriction_id))
+- **PURPOSE_CATEGORY**(`purpose_code PK`, purpose_name UQ/NN, description NN): controlled classification vocabulary; seed values are GENERAL, FOOD, EDUCATION, HEALTH, SHELTER.
+- **ORGANIZATION**(`organization_id PK`, organization_name NN, registration_ref UQ, email, phone, created_at).
+- **DONOR**(`donor_id PK`, display_name, email, phone, is_anonymous_record NN, created_at); partial unique index permits at most one anonymous record; its check requires empty identity fields.
+- **CAMPAIGN**(`campaign_id PK`, `organization_id FK`, campaign_name NN, purpose NN, `purpose_code FK`, target_amount NN, start_date NN, end_date NN, approval_status NN, campaign_status NN, approved_by, approved_at, created_at). All monetary values are INR.
+- **PLEDGE**(`pledge_id PK`, `donor_id FK`, `campaign_id FK`, pledged_amount NN, pledged_at, pledge_status NN, notes). Status is workflow-derived.
+- **DONATION**(`donation_id PK`, `donor_id FK`, `campaign_id FK`, `pledge_id FK NULL`, donation_amount NN, currency NN = INR, payment_method NN, payment_status NN, transaction_reference UQ, receipt_number UQ, donated_at, cleared_at, refunded_amount NN). `UNIQUE(donation_id,campaign_id)` supports scoped composite references. A pledge can have many donations.
+- **BENEFICIARY**(`beneficiary_id PK`, beneficiary_name NN, beneficiary_type NN, verification_status NN, verification_reference, verified_by, verified_at, contact_details, created_at).
+- **FUND_RESTRICTION**(`restriction_id PK`, `campaign_id FK`, restriction_code NN, restriction_name NN, `allowed_purpose_code FK`, created_at; UQ(campaign_id, restriction_code), UQ(campaign_id, restriction_id)).
+- **DONATION_RESTRICTION**(`donation_id`, `campaign_id`, `restriction_id`, restricted_amount NN; PK(donation_id,restriction_id); composite FKs enforce the donation and restriction campaign match).
+- **DONATION_REFUND**(`refund_id PK`, `donation_id FK`, `campaign_id`, `refund_reference UQ/NN`, refund_amount NN, reason NN, recorded_at; composite FK to donation).
+- **DONATION_REFUND_SCOPE**(`refund_scope_id PK`, `refund_id`, `campaign_id`, `donation_id`, `restriction_id NULL`, amount NN; composite FKs retain original donation/campaign/restriction scope; unique nulls not distinct per refund/scope).
+- **DISBURSEMENT**(`disbursement_id PK`, `campaign_id FK`, `beneficiary_id FK`, `restriction_id NULL`, disbursement_amount NN, approved_purpose NN, `purpose_code FK`, approval_status NN, disbursement_status NN, approved_by, approved_at, payment_reference UQ, requested_at, paid_at; composite FK for campaign/restriction).
+- **DONOR_CONSENT_EVENT**(`consent_event_id PK`, `donor_id FK`, consent_purpose NN, consent_action NN, occurred_at NN, actor_id NN, details).
+- **FUND_LEDGER_ENTRY**(`ledger_entry_id PK`, `campaign_id FK`, `restriction_id NULL`, `donation_id NULL`, `disbursement_id NULL`, `refund_scope_id NULL UQ`, entry_type NN, amount_delta NN, currency NN = INR, occurred_at NN, external_reference, notes; source and scope composite FKs).
+- **AUDIT_LOG**(`audit_id PK`, actor_id NN, action_type NN, entity_type NN, entity_id NN, occurred_at NN, old_values, new_values, reason, request_id). Entity reference is polymorphic.
 
-## Core relationship cardinalities
+## Selected data dictionary
 
-- ORGANIZATION 1 : N CAMPAIGN
-- DONOR 1 : N PLEDGE
-- CAMPAIGN 1 : N PLEDGE
-- DONOR 1 : N DONATION
-- CAMPAIGN 1 : N DONATION
-- PLEDGE 0..1 : 0..1 DONATION in the current simplified model (unique nullable pledge_id); if partial fulfilment is needed, replace this with a PLEDGE_DONATION associative table.
-- CAMPAIGN 1 : N FUND_RESTRICTION
-- DONATION M : N FUND_RESTRICTION through DONATION_RESTRICTION
-- CAMPAIGN 1 : N DISBURSEMENT
-- BENEFICIARY 1 : N DISBURSEMENT
-- FUND_RESTRICTION 1 : N DISBURSEMENT (optional restriction on a disbursement)
-- CAMPAIGN 1 : N FUND_LEDGER_ENTRY
-- DISBURSEMENT 1 : N AUDIT_LOG events by entity_type/entity_id (polymorphic audit reference, intentionally not a direct FK)
-
-## Data dictionary (selected columns)
-
-| Table.Column | Type | Meaning / rule |
+| Column | Type | Meaning and enforcement |
 |---|---|---|
-| organization.organization_id | BIGINT identity | Surrogate primary key |
-| organization.registration_ref | VARCHAR(100) | Optional unique registration reference |
-| campaign.target_amount | NUMERIC(14,2) | Positive campaign target in currency units |
-| campaign.approval_status | VARCHAR(20) | PENDING / APPROVED / REJECTED / SUSPENDED |
-| campaign.campaign_status | VARCHAR(20) | DRAFT / ACTIVE / PAUSED / CLOSED / CANCELLED |
-| pledge.pledged_amount | NUMERIC(14,2) | Positive promise amount; not spendable cash |
-| donation.donation_amount | NUMERIC(14,2) | Positive original donation amount |
-| donation.transaction_reference | VARCHAR(160) | Unique online payment reference when successful |
-| donation.receipt_number | VARCHAR(80) | Unique receipt for successful online donation |
-| donation.cleared_at | TIMESTAMPTZ | Marks when successful funds clear; amount is not available before clearing |
-| donation.refund_amount | NUMERIC(14,2) | Amount refunded; original donation row retained |
-| beneficiary.verification_status | VARCHAR(20) | Must be VERIFIED before disbursement approval/payment |
-| fund_restriction.approved_purpose | TEXT | Purpose to which restricted funds may be applied |
-| disbursement.disbursement_amount | NUMERIC(14,2) | Positive request; payable only after transactional balance checks |
-| fund_ledger_entry.amount_delta | NUMERIC(14,2) | Signed append-style ledger delta: inflow positive, outflow/reversal negative |
-| audit_log.old_values / new_values | JSONB | Snapshot fields for auditable state changes |
+| campaign.target_amount | NUMERIC(14,2) | Positive INR fundraising target |
+| campaign.purpose_code | VARCHAR(40) | Controlled campaign purpose category |
+| pledge.pledged_amount | NUMERIC(14,2) | Promise only; not cleared cash |
+| pledge.pledge_status | VARCHAR(20) | OPEN / PARTIALLY_FULFILLED / FULFILLED / CANCELLED; maintained by workflows |
+| donation.donation_amount | NUMERIC(14,2) | Immutable source amount; positive INR |
+| donation.currency | CHAR(3) | Checked to INR; no conversion is performed |
+| donation.payment_status | VARCHAR(20) | Pending, successful, failed, cancelled, partially refunded, or refunded |
+| donation.transaction_reference | VARCHAR(160) | Optional except on successful online payment; unique |
+| donation.receipt_number | VARCHAR(80) | Required and unique for successful online payment; supplied by caller |
+| donation.refunded_amount | NUMERIC(14,2) | Cumulative summary maintained by refund operation; bounded by original amount |
+| donation_restriction.restricted_amount | NUMERIC(14,2) | Original allocation to one campaign restriction; aggregate may not exceed donation amount |
+| donation_refund.refund_amount | NUMERIC(14,2) | Immutable refund event amount; all refund events must sum to at most original donation |
+| donation_refund_scope.restriction_id | BIGINT NULL | NULL denotes unrestricted remainder; otherwise the original restricted pool |
+| disbursement.purpose_code | VARCHAR(40) | Must match campaign purpose for unrestricted funds or restriction allowed code |
+| fund_ledger_entry.amount_delta | NUMERIC(14,2) | Positive clearing; negative refund/disbursement; INR only |
+| audit_log.actor_id | VARCHAR(160) | Supplied through transaction-local application actor context; not independently authenticated by PostgreSQL |
 
-## Implementation caveats
+## Accounting and normalization rules
 
-- Cross-row validation of cleared funds requires a transaction that locks the relevant campaign/restriction balance scope; a row-level CHECK constraint alone is insufficient.
-- The schema separates source transactions from fund-ledger entries. Ledger entries should be appended in the same DB transaction as the corresponding business event.
-- Donation restrictions are modeled as an allocation relationship. The sum of restriction allocations per donation must not exceed its cleared, unrefunded amount; enforce in transactional logic.
-- For truly partial pledge fulfillment, model PLEDGE_DONATION as an associative table, rather than the unique nullable pledge_id in this initial simplified schema.
-- The audit table is polymorphic. For stronger referential guarantees, use entity-specific audit foreign keys or audit triggers.
+- **Pledged:** sum of pledge promises; never entered as ledger cash.
+- **Cleared received:** positive donation-clearing ledger entries only.
+- **Restricted:** clearing entries keyed to a restriction.
+- **Unrestricted:** clearing remainder with `restriction_id IS NULL`.
+- **Refunded:** negative ledger entries tied to refund scopes, plus immutable refund event rows.
+- **Disbursed:** negative ledger entries tied to a paid disbursement.
+- **Available:** signed ledger sum within one campaign and one scope. All entries are INR.
+
+The current relations are intended to be in 3NF: entity attributes depend on their keys; purpose names are separated into PURPOSE_CATEGORY; donor, organization, and beneficiary facts are not copied into payment rows; associative relations hold relationship-specific amounts. `pledge_status` and `donation.refunded_amount` are deliberate workflow-maintained summaries for usability and must reconcile to donation/refund events.
+
+See [design decisions](design-decisions.md) for refund scope policy, purpose-code limits, actor assumptions, and locking rationale. The SQL is an initializer, not a migration. Runtime evidence covers the executions listed in the report and test plan; behavior outside those assertions is not thereby verified.

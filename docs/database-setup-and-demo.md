@@ -1,55 +1,47 @@
 # Manual Database Setup and Demonstration
 
-## 1. Requirements
+## 1. Requirements and safety
 
-- PostgreSQL 15 or newer
-- `psql` command-line client or pgAdmin
-- Repository checked out at branch `pbl-mid-evaluation`
+- PostgreSQL 15 or newer (`UNIQUE NULLS NOT DISTINCT` is used).
+- These scripts are initializers, not migrations or reset scripts. Apply them only to a newly created isolated database whose exact name has been confirmed absent. Never reuse `charity_portal_test`, `charity_portal_financial_review`, or another pre-existing database for this setup.
+- Use a separate non-login owner role and a non-superuser application login. Never expose credentials in commands or source control.
+- Review `backend/DONATION_WRITE_DESIGN.md` before enabling any API workflow. All workflow and payment flags default to false.
 
-## 2. Create an empty development database
+## 2. Apply the current baseline
 
-```sql
-CREATE DATABASE charity_portal_dev;
+Replace `<NEW_DISPOSABLE_DATABASE>` only after an exact-name absence check. The commands below are examples; they have not been executed as part of this documentation update.
+
+```powershell
+psql -X -W -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d "<NEW_DISPOSABLE_DATABASE>" -f database/schema.sql
+psql -X -W -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d "<NEW_DISPOSABLE_DATABASE>" -f database/workflows.sql
+psql -X -W -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d "<NEW_DISPOSABLE_DATABASE>" -f database/runtime-roles.sql
 ```
 
-## 3. Apply scripts in order
+The role initializer creates non-login `charity_portal_owner` and `charity_portal_runtime` roles if absent, removes public DML/function/schema-create access, transfers project function ownership to the owner role, and grants the runtime role only discovery-view SELECT and approved workflow function execution. It does not create a login or set a password. Administratively provision a dedicated non-superuser LOGIN role and grant membership in `charity_portal_runtime` only; never grant membership in the owner role. These scripts are not a database upgrade path.
 
-```bash
-psql -v ON_ERROR_STOP=1 -d charity_portal_dev -f database/schema.sql
-psql -v ON_ERROR_STOP=1 -d charity_portal_dev -f database/workflows.sql
+Capture each exit code and full diagnostic output. A nonzero exit means setup is incomplete; stop and investigate the isolated database without dropping or resetting any existing database.
+
+## 3. Actors and workflow use
+
+The application must validate OIDC tokens and set transaction-local `app.actor_id` from the verified issuer and subject. The setting is context, not authentication. The app runtime login must not have direct table DML and must not be a database owner or superuser. Organization memberships and platform roles are provisioned only by a trusted administrator.
+
+Campaign creation, submission, review, activation, beneficiary creation/verification, disbursement request/approval/payment, donations, simulated payments, and refunds must use the controlled SQL workflow functions through the backend. Do not directly update approval, verification, clearing, refund, or payout state. Named guest donations use a client-generated high-entropy capability; anonymous donations are not implemented. Beneficiary rows with unresolved organization ownership remain unpaid until an authoritative mapping is reviewed and recorded.
+
+## 4. Regression tests
+
+Read [test-plan.md](../tests/test-plan.md). Run the rollback-based financial script only in the newly created isolated database after applying all three initializer scripts:
+
+```powershell
+psql -X -W -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d "<NEW_DISPOSABLE_DATABASE>" -f tests/financial-integrity.sql
 ```
 
-Run each script against a disposable database first. Fix any error before demonstrating it.
+The script is intended to end with `ROLLBACK`, discarding all synthetic fixtures. Concurrency cases need separate sessions and separate disposable databases. Do not call an assertion successful until execution output and final-state checks are recorded in `docs/database-execution-report.md`.
 
-## 4. Inspect the tables
+## 5. Financial and operational limits
 
-```sql
-\dt
-\d+ campaign
-\d+ donation
-\d+ fund_ledger_entry
-```
-
-## 5. Required test sequence
-
-1. Insert one organization.
-2. Insert a campaign whose dates include today; first try PENDING/DRAFT and confirm a pledge is rejected.
-3. Approve and activate it with `approval_status='APPROVED'`, `approved_at=CURRENT_TIMESTAMP`, and `campaign_status='ACTIVE'`.
-4. Create a donor and a pledge.
-5. Create a successful ONLINE donation with a unique transaction reference and receipt number and a non-null `cleared_at`.
-6. Assign any restriction rows before posting the clearing event.
-7. Call `SELECT post_donation_clearing(<donation_id>);` and inspect the ledger.
-8. Create a verified beneficiary with `verified_at` set.
-9. Create and approve a disbursement for the same campaign and test `SELECT pay_disbursement(<disbursement_id>, '<unique-payment-reference>');` once with a valid amount and once with an amount greater than funds available.
-10. Verify the valid payment reduces ledger balance and the oversized payment is rejected.
-11. Test a donation refund on a disposable fixture and confirm it adds a negative ledger entry without deleting the original donation.
-
-## 6. Important assumptions and known limitations
-
-- `post_donation_clearing` records donation allocation at clearing time. Allocate donation restrictions before calling it.
-- In this implementation, refund rows reverse the specified donation's posted clearing entries and also require the campaign/restriction scope to have enough current balance. A refund after funds have already been disbursed may require a debt/negative-balance model or a separate exception workflow. That scenario should be discussed and explicitly tested before claiming full financial lifecycle support.
-- `pay_disbursement` uses the campaign row as a serialization lock, reducing races between concurrent payouts for the same campaign. The database role used by the application should not be allowed to bypass the function path.
-- The restriction purpose check is a conservative text-match demonstration, not a robust purpose taxonomy. Prefer a predefined purpose code or explicit authorization relation for a production design.
-- The current model uses a single currency field per transaction and the payout function defaults ledger currency to INR. A production implementation should enforce currency consistency on campaign/fund accounts.
-- A PostgreSQL function is not an external payment integration. Only call the pay function after a real external payment confirmation in a real system.
-- Trigger/owner privileges need a deliberate role model; a table owner or superuser may bypass ordinary protections.
+- Evaluation scope is INR only; no currency conversion is modeled.
+- Refunds preserve the original donation and create refund events plus per-scope reversals. The transaction rolls back if any portion exceeds available funds in its original allocation scopes.
+- Purpose codes enforce database classification compatibility; they do not prove that an actual expense met the classified purpose.
+- Audit and ledger entries are written in the business transaction. Triggers do not protect against privileged table owners or superusers.
+- Payment simulation is development/test only and is not evidence of settlement by a payment provider. A timeout is persisted as `UNKNOWN` and requires authorized reconciliation.
+- Existing databases require an explicitly reviewed migration/backfill plan before this baseline can replace their schema. Do not infer beneficiary ownership from names or other non-authoritative matches.

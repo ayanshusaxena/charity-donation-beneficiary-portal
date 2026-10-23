@@ -31,6 +31,15 @@ Charity campaigns need a consistent way to trace donor commitments, actual donat
 ### Proposed design baseline
 The README describes eight core entities: Donor, Organization, Campaign, Pledge, Donation, Beneficiary, Disbursement, and Audit Log. This implementation will add an explicit `fund_restriction` concept and an append-only `fund_ledger_entry` table because a single balance column cannot reliably represent the required states and reversals. These are design choices, not claims that the old repository already implemented them.
 
+### Financial-integrity decisions for this evaluation
+- Currency scope is INR-only; all campaign targets and financial movements use INR and no conversion is implied.
+- A pledge can be fulfilled by multiple donations. Only successfully cleared, net-of-refund amounts count; a row lock prevents concurrent over-fulfillment.
+- Each refund is an append-only event tied to its original donation and allocated back to original restricted/unrestricted scopes. If scope funds have already been spent, the refund fails atomically; there is no debt/negative-balance exception model.
+- Purpose compatibility uses controlled purpose codes. The database validates code compatibility but does not prove an actual expense matched the selected classification.
+- Sensitive workflow audit records use a transaction-local actor context supplied by the calling application. It is not independently authenticated and is not protected against table owners/superusers.
+
+See [design decisions](design-decisions.md) for detailed policy and concurrency rationale.
+
 ### Scope for mid-evaluation
 - Conceptual ER model and relationship cardinalities
 - Logical relational schema and normalization worksheet
