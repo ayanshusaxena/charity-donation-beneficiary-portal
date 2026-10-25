@@ -1,0 +1,1 @@
+"""Charity portal API application."""
