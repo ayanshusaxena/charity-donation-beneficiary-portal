@@ -15,6 +15,8 @@ from app.errors import ApiError
 
 bearer_scheme = HTTPBearer(auto_error=False, scheme_name="BearerAuth")
 GUEST_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43,128}$")
+APPLICANT_TOKEN_PATTERN = re.compile(r"^dk_app_[A-Za-z0-9_-]{32,128}$")
+MOCK_TOKEN_PATTERN = re.compile(r"^mock-(?:oidc-)?[A-Za-z0-9_-]+$")
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,23 @@ def optional_principal(
         raise ApiError(401, "UNAUTHENTICATED", "A bearer access token is required")
 
     settings = get_settings()
+
+    # 1. Applicant Capability-Token authentication
+    if APPLICANT_TOKEN_PATTERN.match(credentials.credentials):
+        token_hash = hashlib.sha256(credentials.credentials.encode("ascii")).hexdigest()
+        return Principal(actor_id=f"applicant:{token_hash}", claims={"role": "applicant", "token_hash": token_hash})
+
+    # 2. Sandbox/Development synthetic mock tokens
+    if settings.environment in {"development", "test"} and MOCK_TOKEN_PATTERN.match(credentials.credentials):
+        token_name = credentials.credentials
+        if "ngo" in token_name:
+            actor_id = "mock:bal-vikas-editor"
+        elif "reviewer" in token_name:
+            actor_id = "mock:irb-faculty-reviewer"
+        else:
+            actor_id = f"mock:{token_name}"
+        return Principal(actor_id=actor_id, claims={"role": "mock", "sub": token_name})
+
     if not settings.auth_issuer or not settings.auth_audience or not settings.auth_jwks_url:
         raise ApiError(503, "AUTHENTICATION_UNAVAILABLE", "Trusted token verification is not configured")
     try:

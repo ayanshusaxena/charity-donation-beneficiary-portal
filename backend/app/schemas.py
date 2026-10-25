@@ -26,6 +26,12 @@ ApiErrorCode = Literal[
 ]
 
 
+def coerce_stable_id(value: object) -> object:
+    if isinstance(value, int):
+        return str(value)
+    return value
+
+
 def validate_stable_id(value: str) -> str:
     numeric_id = int(value)
     if numeric_id < 1 or numeric_id > 9_223_372_036_854_775_807:
@@ -35,8 +41,10 @@ def validate_stable_id(value: str) -> str:
 
 StableId = Annotated[
     str,
+    BeforeValidator(coerce_stable_id),
     Field(pattern=STABLE_ID_PATTERN, max_length=19),
     AfterValidator(validate_stable_id),
+    WithJsonSchema({"type": "string", "pattern": STABLE_ID_PATTERN, "maxLength": 19}, mode="serialization"),
 ]
 Money = Annotated[
     Decimal,
@@ -101,6 +109,8 @@ class OrganizationMembershipOut(BaseModel):
     organization_id: StableId
     organization_name: str
     roles: list[Literal["CAMPAIGN_EDITOR", "BENEFICIARY_MANAGER", "DISBURSEMENT_REQUESTER"]]
+    verification_status: Literal["PENDING", "VERIFIED", "REJECTED"] = "VERIFIED"
+    review_reason: str | None = None
 
 
 class OrganizationListOut(BaseModel):
@@ -121,22 +131,26 @@ class OrganizationDashboardOut(BaseModel):
 class OrganizationCampaignOut(BaseModel):
     campaign_id: StableId
     campaign_name: str
-    purpose: str
-    purpose_code: Literal["GENERAL", "FOOD", "EDUCATION", "HEALTH", "SHELTER"]
-    target_amount: Money
+    purpose: str | None = None
+    purpose_code: Literal["GENERAL", "FOOD", "EDUCATION", "HEALTH", "SHELTER"] | None = None
+    target_amount: Money | None = None
     amount_raised: NonNegativeMoney = Field(
         description="Net cleared donation inflows less posted refunds; excludes disbursements."
     )
     currency: Literal["INR"]
-    start_date: date
-    end_date: date
+    start_date: date | None = None
+    end_date: date | None = None
     approval_status: Literal["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]
     campaign_status: Literal["DRAFT", "ACTIVE", "PAUSED", "CLOSED", "CANCELLED"]
     submitted_at: datetime | None
     review_reason: str | None
 
-    @field_serializer("target_amount", "amount_raised")
-    def serialize_campaign_amounts(self, value: Decimal) -> str:
+    @field_serializer("target_amount")
+    def serialize_target_amount(self, value: Decimal | None) -> str | None:
+        return format(value, ".2f") if value is not None else None
+
+    @field_serializer("amount_raised")
+    def serialize_raised_amount(self, value: Decimal) -> str:
         return format(value, ".2f")
 
 
@@ -253,12 +267,12 @@ class CampaignDraftInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     campaign_name: str = Field(min_length=1, max_length=180)
-    purpose: str = Field(min_length=1)
-    purpose_code: Literal["GENERAL", "FOOD", "EDUCATION", "HEALTH", "SHELTER"]
-    target_amount: WireMoney
-    currency: Literal["INR"]
-    start_date: date
-    end_date: date
+    purpose: str | None = None
+    purpose_code: Literal["GENERAL", "FOOD", "EDUCATION", "HEALTH", "SHELTER"] | None = None
+    target_amount: WireMoney | None = None
+    currency: Literal["INR"] = "INR"
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 class CampaignDraftUpdate(BaseModel):
@@ -347,3 +361,111 @@ class ErrorEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     error: ErrorDetail
+
+
+class OrganizationRegisterInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    organization_name: str = Field(min_length=1, max_length=160)
+    registration_ref: str = Field(min_length=1, max_length=100)
+    email: EmailStr | None = None
+    phone: str | None = None
+
+
+class OrganizationRegisterOut(BaseModel):
+    organization_id: StableId
+    organization_name: str
+    verification_status: Literal["PENDING", "VERIFIED", "REJECTED"]
+    applicant_access_token: str
+
+
+class OrganizationReviewInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["VERIFIED", "REJECTED"]
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+class OrganizationReviewItemOut(BaseModel):
+    organization_id: StableId
+    organization_name: str
+    registration_ref: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    verification_status: Literal["PENDING", "VERIFIED", "REJECTED"]
+    review_reason: str | None = None
+    created_at: datetime
+
+
+class OrganizationReviewQueuePage(BaseModel):
+    items: list[OrganizationReviewItemOut]
+    limit: int
+    offset: Annotated[int, Field(ge=0, le=1_000_000)]
+    has_more: bool
+    next_offset: Annotated[int | None, Field(ge=0, le=1_000_000)]
+
+
+class ReasonInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+class ClosureDecisionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["APPROVED", "REJECTED"]
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+class ClosureRequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    request_id: StableId
+    campaign_id: StableId
+    campaign_name: str | None = None
+    organization_id: StableId
+    organization_name: str | None = None
+    requested_by: str
+    request_reason: str
+    status: Literal["PENDING", "APPROVED", "REJECTED"]
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    review_reason: str | None = None
+    created_at: datetime
+
+
+class ClosureRequestPage(BaseModel):
+    items: list[ClosureRequestOut]
+
+
+class IrbCampaignOversightItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    campaign_id: StableId
+    organization_id: StableId
+    organization_name: str
+    campaign_name: str
+    purpose_code: str
+    target_amount: Money | None = None
+    amount_raised: NonNegativeMoney = Field(default=Decimal("0.00"))
+    start_date: date | None = None
+    end_date: date | None = None
+    approval_status: str
+    campaign_status: str
+    pending_closure_request: bool = False
+    created_at: datetime
+
+    @field_serializer("target_amount", "amount_raised")
+    def serialize_money(self, value: Decimal | None) -> str | None:
+        if value is None:
+            return None
+        return format(value, ".2f")
+
+
+class IrbCampaignOversightPage(BaseModel):
+    items: list[IrbCampaignOversightItem]
+    limit: int
+    offset: Annotated[int, Field(ge=0, le=1_000_000)]
+    has_more: bool
+    next_offset: Annotated[int | None, Field(ge=0, le=1_000_000)]

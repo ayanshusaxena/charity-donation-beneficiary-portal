@@ -23,8 +23,29 @@ CREATE TABLE organization (
     registration_ref VARCHAR(100) UNIQUE,
     email VARCHAR(254),
     phone VARCHAR(30),
+    verification_status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+        CHECK (verification_status IN ('PENDING','VERIFIED','REJECTED')),
+    verification_reference VARCHAR(160),
+    verified_by VARCHAR(512),
+    verified_at TIMESTAMPTZ,
+    review_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT organization_verification_metadata_check CHECK (
+        (verification_status = 'VERIFIED' AND verified_at IS NOT NULL AND verified_by IS NOT NULL)
+        OR (verification_status = 'REJECTED' AND verified_at IS NOT NULL AND verified_by IS NOT NULL AND review_reason IS NOT NULL)
+        OR (verification_status = 'PENDING' AND verified_at IS NULL AND verified_by IS NULL)
+    )
+);
+
+CREATE INDEX idx_organization_verification ON organization(verification_status);
+
+CREATE TABLE organization_applicant_access (
+    applicant_access_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    organization_id BIGINT NOT NULL REFERENCES organization(organization_id),
+    token_sha256 CHAR(64) NOT NULL UNIQUE CHECK (token_sha256 ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX idx_applicant_token ON organization_applicant_access(token_sha256);
 
 CREATE TABLE donor (
     donor_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -47,11 +68,11 @@ CREATE TABLE campaign (
     campaign_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     organization_id BIGINT NOT NULL REFERENCES organization(organization_id),
     campaign_name VARCHAR(180) NOT NULL,
-    purpose TEXT NOT NULL,
-    purpose_code VARCHAR(40) NOT NULL REFERENCES purpose_category(purpose_code),
-    target_amount NUMERIC(14,2) NOT NULL CHECK (target_amount > 0),
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
+    purpose TEXT,
+    purpose_code VARCHAR(40) REFERENCES purpose_category(purpose_code),
+    target_amount NUMERIC(14,2) CHECK (target_amount IS NULL OR target_amount > 0),
+    start_date DATE,
+    end_date DATE,
     approval_status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
         CHECK (approval_status IN ('PENDING','APPROVED','REJECTED','SUSPENDED')),
     campaign_status VARCHAR(20) NOT NULL DEFAULT 'DRAFT'
@@ -64,7 +85,10 @@ CREATE TABLE campaign (
     reviewed_at TIMESTAMPTZ,
     review_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT campaign_dates_check CHECK (end_date >= start_date),
+    CONSTRAINT campaign_name_nonempty_check CHECK (length(btrim(campaign_name)) > 0),
+    CONSTRAINT campaign_dates_check CHECK (
+        start_date IS NULL OR end_date IS NULL OR end_date >= start_date
+    ),
     CONSTRAINT campaign_approval_metadata_check CHECK (
         (approval_status = 'APPROVED' AND approved_at IS NOT NULL)
         OR approval_status <> 'APPROVED'

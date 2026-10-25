@@ -2,9 +2,10 @@ openapi: 3.1.0
 info:
   title: Charity Donation & Beneficiary Portal API
   version: 0.1.0-provisional
-  description: Development contract aligned to the current PostgreSQL baseline. Donation, payment and workflow writes
-    remain disabled by default and require verified OIDC identity, the runtime database role, and explicit environment
-    flags. Guest giving is named and capability-authorized; anonymous donations are not enabled.
+  description: Development contract aligned to the current PostgreSQL baseline. Donation,
+    payment and workflow writes remain disabled by default and require verified OIDC
+    identity, the runtime database role, and explicit environment flags. Guest giving
+    is named and capability-authorized; anonymous donations are not enabled.
 servers:
 - url: http://localhost:8000
 tags:
@@ -20,9 +21,11 @@ paths:
       - Campaigns
       operationId: listCampaigns
       summary: List campaigns currently accepting donations
-      description: Optional purpose, search, and sort filters are applied to eligible campaigns before ordering
-        and pagination. The database-backed public campaign view and the authoritative write guard share the campaign_accepts_donations
-        predicate. API validation and discovery do not replace database checks on write.
+      description: Optional purpose, search, and sort filters are applied to eligible
+        campaigns before ordering and pagination. The database-backed public campaign
+        view and the authoritative write guard share the campaign_accepts_donations
+        predicate. API validation and discovery do not replace database checks on
+        write.
       parameters:
       - name: limit
         in: query
@@ -55,8 +58,9 @@ paths:
       - name: search
         in: query
         required: false
-        description: Case-insensitive literal substring search over campaign name, organization name, and purpose.
-          Leading/trailing whitespace is trimmed; an empty value after trimming applies no search filter.
+        description: Case-insensitive literal substring search over campaign name,
+          organization name, and purpose. Leading/trailing whitespace is trimmed;
+          an empty value after trimming applies no search filter.
         schema:
           type: string
       - name: sort
@@ -72,7 +76,8 @@ paths:
           default: date
       responses:
         '200':
-          description: Page of eligible campaigns after filtering, ordered by requested sort and stable tie-breaker
+          description: Page of eligible campaigns after filtering, ordered by requested
+            sort and stable tie-breaker
           content:
             application/json:
               schema:
@@ -148,11 +153,13 @@ paths:
       - Donations
       operationId: createDonation
       summary: Create a pending registered or named guest donation
-      description: Requires a durable creation idempotency key. A registered donor uses a verified OIDC bearer token;
-        a guest supplies donor details and a high-entropy Guest-Access-Token capability. The same key and payload
-        replay the persisted result; a different payload conflicts. The server checks campaign eligibility and creates
-        the donor link, donation, audit event, guest digest and idempotency result atomically. Endpoint remains
-        disabled unless workflow and donation-write flags are enabled.
+      description: Requires a durable creation idempotency key. A registered donor
+        uses a verified OIDC bearer token; a guest supplies donor details and a high-entropy
+        Guest-Access-Token capability. The same key and payload replay the persisted
+        result; a different payload conflicts. The server checks campaign eligibility
+        and creates the donor link, donation, audit event, guest digest and idempotency
+        result atomically. Endpoint remains disabled unless workflow and donation-write
+        flags are enabled.
       security:
       - BearerAuth: []
       - GuestAccessToken: []
@@ -200,11 +207,12 @@ paths:
       - Donations
       operationId: simulateDonationPayment
       summary: Submit a simulated payment outcome
-      description: Simulation-only control available in an explicitly enabled development or test environment. Payment
-        attempt, idempotency result and (for success) unique transaction reference, receipt, clearing ledger and
-        audit commit atomically. TIMEOUT persists UNKNOWN and blocks another attempt until an authorized reconciliation
-        decision. Transport timeout is recovered by replaying the same key or reading the owned donation. No payment
-        provider is contacted.
+      description: Simulation-only control available in an explicitly enabled development
+        or test environment. Payment attempt, idempotency result and (for success)
+        unique transaction reference, receipt, clearing ledger and audit commit atomically.
+        TIMEOUT persists UNKNOWN and blocks another attempt until an authorized reconciliation
+        decision. Transport timeout is recovered by replaying the same key or reading
+        the owned donation. No payment provider is contacted.
       security:
       - BearerAuth: []
       - GuestAccessToken: []
@@ -220,13 +228,15 @@ paths:
               $ref: '#/components/schemas/SimulatedPaymentRequest'
       responses:
         '200':
-          description: Persisted payment result; receipt appears only after committed clearing
+          description: Persisted payment result; receipt appears only after committed
+            clearing
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Donation'
         '202':
-          description: The simulated attempt remains unknown and needs authorized reconciliation
+          description: The simulated attempt remains unknown and needs authorized
+            reconciliation
           content:
             application/json:
               schema:
@@ -253,7 +263,8 @@ paths:
       - Donations
       operationId: getDonation
       summary: Get the persisted donation and payment outcome
-      description: Returns only a donation owned by the verified donor principal or matching guest capability.
+      description: Returns only a donation owned by the verified donor principal or
+        matching guest capability.
       security:
       - BearerAuth: []
       - GuestAccessToken: []
@@ -722,7 +733,8 @@ paths:
               $ref: '#/components/schemas/DisbursementPayment'
       responses:
         '200':
-          description: Paid state, negative ledger entry and audit event committed atomically
+          description: Paid state, negative ledger entry and audit event committed
+            atomically
           content:
             application/json:
               schema:
@@ -760,7 +772,8 @@ paths:
               $ref: '#/components/schemas/RefundRequest'
       responses:
         '200':
-          description: Refund scope reversals, ledger entries and audit committed atomically
+          description: Refund scope reversals, ledger entries and audit committed
+            atomically
           content:
             application/json:
               schema:
@@ -1039,6 +1052,125 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/organizations/register:
+    post:
+      tags:
+      - Campaign Management
+      summary: Register Organization
+      description: Register a new organization in sandbox mode. Returns a one-time
+        applicant token.
+      operationId: registerOrganization
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationRegisterInput'
+        required: true
+      responses:
+        '201':
+          description: Organization registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationRegisterOut'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/review/organizations:
+    get:
+      tags:
+      - Campaign review
+      summary: Get Organization Review Queue
+      description: List organizations pending verification. Requires CAMPAIGN_REVIEWER
+        role.
+      operationId: getOrganizationReviewQueue
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000000
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationReviewQueuePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/review/organizations/{organization_id}:
+    post:
+      tags:
+      - Campaign review
+      summary: Review Organization Application
+      description: Approve or reject an organization application. Requires CAMPAIGN_REVIEWER
+        role.
+      operationId: reviewOrganization
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Organization Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationReviewInput'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/review/campaigns:
     get:
       tags:
@@ -1104,8 +1236,716 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/campaigns/{campaign_id}/closure-request:
+    post:
+      tags:
+      - Organization and finance workflows
+      summary: Request Campaign Closure Endpoint
+      description: Submit an organization closure request for an active or paused
+        campaign.
+      operationId: request_campaign_closure_endpoint_api_v1_campaigns__campaign_id__closure_request_post
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      parameters:
+      - name: campaign_id
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 19
+          title: Campaign Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonInput'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResult'
+        '401':
+          description: Authentication is required or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The authenticated actor is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: The resource is not found or not visible to this actor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: A persisted state or idempotency conflict occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: An unexpected server error occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Authentication service, database or workflow is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/organizations/{organization_id}/closure-requests:
+    get:
+      tags:
+      - Organization reads
+      summary: Get Organization Closure Requests
+      operationId: get_organization_closure_requests_api_v1_organizations__organization_id__closure_requests_get
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      parameters:
+      - name: organization_id
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 19
+          title: Organization Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClosureRequestPage'
+        '401':
+          description: Authentication is required or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The authenticated actor is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: An unexpected server error occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Authentication service, database or workflow is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/review/all-campaigns:
+    get:
+      tags:
+      - Campaign review
+      summary: Get All Campaigns Oversight
+      description: View all campaigns across lifecycle states. Requires CAMPAIGN_REVIEWER
+        role.
+      operationId: get_all_campaigns_oversight_api_v1_review_all_campaigns_get
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000000
+          minimum: 0
+          default: 0
+          title: Offset
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IrbCampaignOversightPage'
+        '401':
+          description: Authentication is required or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The authenticated actor is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: An unexpected server error occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Authentication service, database or workflow is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/review/closure-requests:
+    get:
+      tags:
+      - Campaign review
+      summary: Get Closure Requests Queue
+      description: List pending organization closure requests. Requires CAMPAIGN_REVIEWER
+        role.
+      operationId: get_closure_requests_queue_api_v1_review_closure_requests_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClosureRequestPage'
+        '401':
+          description: Authentication is required or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The authenticated actor is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: An unexpected server error occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Authentication service, database or workflow is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+  /api/v1/review/closure-requests/{request_id}/decision:
+    post:
+      tags:
+      - Campaign review
+      summary: Review Closure Request Endpoint
+      description: Approve or reject a campaign closure request. Requires CAMPAIGN_REVIEWER
+        role.
+      operationId: review_closure_request_endpoint_api_v1_review_closure_requests__request_id__decision_post
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 19
+          title: Request Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClosureDecisionInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResult'
+        '401':
+          description: Authentication is required or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The authenticated actor is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: The resource is not found or not visible to this actor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: A persisted state or idempotency conflict occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: An unexpected server error occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Authentication service, database or workflow is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/review/campaigns/{campaign_id}/suspend:
+    post:
+      tags:
+      - Campaign review
+      summary: Suspend Campaign Endpoint
+      description: Temporarily suspend an active campaign. Requires CAMPAIGN_REVIEWER
+        role.
+      operationId: suspend_campaign_endpoint_api_v1_review_campaigns__campaign_id__suspend_post
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      parameters:
+      - name: campaign_id
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 19
+          title: Campaign Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResult'
+        '401':
+          description: Authentication is required or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The authenticated actor is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: The resource is not found or not visible to this actor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: A persisted state or idempotency conflict occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: An unexpected server error occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Authentication service, database or workflow is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/review/campaigns/{campaign_id}/reopen:
+    post:
+      tags:
+      - Campaign review
+      summary: Reopen Campaign Endpoint
+      description: Reopen a suspended campaign within its date window. Requires CAMPAIGN_REVIEWER
+        role.
+      operationId: reopen_campaign_endpoint_api_v1_review_campaigns__campaign_id__reopen_post
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      parameters:
+      - name: campaign_id
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 19
+          title: Campaign Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResult'
+        '401':
+          description: Authentication is required or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The authenticated actor is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: The resource is not found or not visible to this actor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: A persisted state or idempotency conflict occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: An unexpected server error occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Authentication service, database or workflow is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /api/v1/review/campaigns/{campaign_id}/close:
+    post:
+      tags:
+      - Campaign review
+      summary: Close Campaign Endpoint
+      description: Permanently close a campaign. Requires CAMPAIGN_REVIEWER role.
+      operationId: close_campaign_endpoint_api_v1_review_campaigns__campaign_id__close_post
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      parameters:
+      - name: campaign_id
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 19
+          title: Campaign Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResult'
+        '401':
+          description: Authentication is required or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: The authenticated actor is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: The resource is not found or not visible to this actor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: A persisted state or idempotency conflict occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: An unexpected server error occurred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: Authentication service, database or workflow is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
 components:
   schemas:
+    OrganizationRegisterInput:
+      properties:
+        organization_name:
+          type: string
+          minLength: 1
+          maxLength: 160
+          title: Organization Name
+        registration_ref:
+          type: string
+          minLength: 1
+          maxLength: 100
+          title: Registration Ref
+        email:
+          anyOf:
+          - type: string
+            format: email
+          - type: 'null'
+          default: null
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Phone
+      additionalProperties: false
+      type: object
+      required:
+      - organization_name
+      - registration_ref
+      title: OrganizationRegisterInput
+    OrganizationRegisterOut:
+      properties:
+        organization_id:
+          type: string
+          title: Organization Id
+        organization_name:
+          type: string
+          title: Organization Name
+        verification_status:
+          type: string
+          enum:
+          - PENDING
+          - VERIFIED
+          - REJECTED
+          title: Verification Status
+        applicant_access_token:
+          type: string
+          title: Applicant Access Token
+      type: object
+      required:
+      - organization_id
+      - organization_name
+      - verification_status
+      - applicant_access_token
+      title: OrganizationRegisterOut
+    OrganizationReviewInput:
+      properties:
+        decision:
+          type: string
+          enum:
+          - VERIFIED
+          - REJECTED
+          title: Decision
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          title: Reason
+      additionalProperties: false
+      type: object
+      required:
+      - decision
+      - reason
+      title: OrganizationReviewInput
+    OrganizationReviewItemOut:
+      properties:
+        organization_id:
+          type: string
+          title: Organization Id
+        organization_name:
+          type: string
+          title: Organization Name
+        registration_ref:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Registration Ref
+        email:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        verification_status:
+          type: string
+          enum:
+          - PENDING
+          - VERIFIED
+          - REJECTED
+          title: Verification Status
+        review_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Review Reason
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - organization_id
+      - organization_name
+      - verification_status
+      - created_at
+      title: OrganizationReviewItemOut
+    OrganizationReviewQueuePage:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/OrganizationReviewItemOut'
+          type: array
+          title: Items
+        limit:
+          type: integer
+          title: Limit
+        offset:
+          type: integer
+          maximum: 1000000
+          minimum: 0
+          title: Offset
+        has_more:
+          type: boolean
+          title: Has More
+        next_offset:
+          anyOf:
+          - type: integer
+            maximum: 1000000
+            minimum: 0
+          - type: 'null'
+          title: Next Offset
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - has_more
+      - next_offset
+      title: OrganizationReviewQueuePage
     BeneficiaryInput:
       properties:
         beneficiary_name:
@@ -1194,12 +2034,6 @@ components:
       type: object
       required:
       - campaign_name
-      - purpose
-      - purpose_code
-      - target_amount
-      - currency
-      - start_date
-      - end_date
       title: CampaignDraftInput
     CampaignDraftUpdate:
       properties:
@@ -1281,7 +2115,8 @@ components:
           type: string
           pattern: ^(?:0|[1-9][0-9]*)(?:\.[0-9]{2})$
           title: Amount Raised
-          description: Net cleared donation inflows less posted refunds; excludes disbursements.
+          description: Net cleared donation inflows less posted refunds; excludes
+            disbursements.
         currency:
           type: string
           const: INR
@@ -2131,7 +2966,8 @@ components:
           type: string
           pattern: ^(?:0|[1-9][0-9]*)(?:\.[0-9]{2})$
           title: Amount Raised
-          description: Net cleared donation inflows less posted refunds; excludes disbursements.
+          description: Net cleared donation inflows less posted refunds; excludes
+            disbursements.
         currency:
           type: string
           const: INR
@@ -2296,6 +3132,21 @@ components:
             - DISBURSEMENT_REQUESTER
           type: array
           title: Roles
+        verification_status:
+          type: string
+          enum:
+          - PENDING
+          - VERIFIED
+          - REJECTED
+          - SUSPENDED
+          default: VERIFIED
+          title: Verification Status
+        review_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Review Reason
       type: object
       required:
       - organization_id
@@ -2332,7 +3183,8 @@ components:
           type: string
           pattern: ^(?:0|[1-9][0-9]*)(?:\.[0-9]{2})$
           title: Amount Raised
-          description: Net cleared donation inflows less posted refunds; excludes disbursements.
+          description: Net cleared donation inflows less posted refunds; excludes
+            disbursements.
         currency:
           type: string
           const: INR
@@ -2432,17 +3284,232 @@ components:
       - has_more
       - next_offset
       title: ReviewQueuePage
+    ReasonInput:
+      properties:
+        reason:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Reason
+      additionalProperties: false
+      type: object
+      required:
+      - reason
+      title: ReasonInput
+    ClosureDecisionInput:
+      properties:
+        decision:
+          type: string
+          enum:
+          - APPROVED
+          - REJECTED
+          title: Decision
+        reason:
+          type: string
+          maxLength: 4000
+          minLength: 1
+          title: Reason
+      additionalProperties: false
+      type: object
+      required:
+      - decision
+      - reason
+      title: ClosureDecisionInput
+    ClosureRequestOut:
+      properties:
+        request_id:
+          type: string
+          maxLength: 19
+          pattern: ^(?:[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-6]|9223372036854775807)$
+          title: Request Id
+        campaign_id:
+          type: string
+          maxLength: 19
+          pattern: ^(?:[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-6]|9223372036854775807)$
+          title: Campaign Id
+        campaign_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Campaign Name
+        organization_id:
+          type: string
+          maxLength: 19
+          pattern: ^(?:[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-6]|9223372036854775807)$
+          title: Organization Id
+        organization_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Organization Name
+        requested_by:
+          type: string
+          title: Requested By
+        request_reason:
+          type: string
+          title: Request Reason
+        status:
+          type: string
+          enum:
+          - PENDING
+          - APPROVED
+          - REJECTED
+          title: Status
+        reviewed_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reviewed By
+        reviewed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Reviewed At
+        review_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Review Reason
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - request_id
+      - campaign_id
+      - organization_id
+      - requested_by
+      - request_reason
+      - status
+      - created_at
+      title: ClosureRequestOut
+    ClosureRequestPage:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ClosureRequestOut'
+          type: array
+          title: Items
+      type: object
+      required:
+      - items
+      title: ClosureRequestPage
+    IrbCampaignOversightItem:
+      properties:
+        campaign_id:
+          type: string
+          maxLength: 19
+          pattern: ^(?:[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-6]|9223372036854775807)$
+          title: Campaign Id
+        organization_id:
+          type: string
+          maxLength: 19
+          pattern: ^(?:[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[0-1][0-9]{17}|92[0-1][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[0-1][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-6]|9223372036854775807)$
+          title: Organization Id
+        organization_name:
+          type: string
+          title: Organization Name
+        campaign_name:
+          type: string
+          title: Campaign Name
+        purpose_code:
+          type: string
+          title: Purpose Code
+        target_amount:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target Amount
+        amount_raised:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Amount Raised
+        start_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Start Date
+        end_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: End Date
+        approval_status:
+          type: string
+          title: Approval Status
+        campaign_status:
+          type: string
+          title: Campaign Status
+        pending_closure_request:
+          type: boolean
+          title: Pending Closure Request
+          default: false
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - campaign_id
+      - organization_id
+      - organization_name
+      - campaign_name
+      - purpose_code
+      - approval_status
+      - campaign_status
+      - created_at
+      title: IrbCampaignOversightItem
+    IrbCampaignOversightPage:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/IrbCampaignOversightItem'
+          type: array
+          title: Items
+        limit:
+          type: integer
+          title: Limit
+        offset:
+          type: integer
+          maximum: 1000000.0
+          minimum: 0.0
+          title: Offset
+        has_more:
+          type: boolean
+          title: Has More
+        next_offset:
+          anyOf:
+          - type: integer
+            maximum: 1000000.0
+            minimum: 0.0
+          - type: 'null'
+          title: Next Offset
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - has_more
+      - next_offset
+      title: IrbCampaignOversightPage
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: OIDC access token validated against configured issuer, audience and JWKS.
+      description: OIDC access token validated against configured issuer, audience
+        and JWKS.
     GuestAccessToken:
       type: apiKey
       in: header
       name: Guest-Access-Token
-      description: High-entropy capability for one named guest donation; server stores only its digest.
+      description: High-entropy capability for one named guest donation; server stores
+        only its digest.
   parameters:
     CampaignId:
       name: campaign_id
@@ -2481,8 +3548,8 @@ components:
       name: Idempotency-Key
       in: header
       required: true
-      description: Operation- and principal-scoped opaque key; same payload replays the result, different payload
-        conflicts.
+      description: Operation- and principal-scoped opaque key; same payload replays
+        the result, different payload conflicts.
       schema:
         type: string
         minLength: 16
@@ -2491,8 +3558,8 @@ components:
       name: Guest-Access-Token
       in: header
       required: false
-      description: Client-generated high-entropy guest capability; only its SHA-256 digest is stored. Do not log
-        it.
+      description: Client-generated high-entropy guest capability; only its SHA-256
+        digest is stored. Do not log it.
       schema:
         type: string
         minLength: 43

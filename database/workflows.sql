@@ -147,12 +147,24 @@ CREATE TRIGGER trg_campaign_audit AFTER UPDATE OF approval_status, campaign_stat
 FOR EACH ROW EXECUTE FUNCTION audit_campaign_change();
 
 CREATE OR REPLACE FUNCTION create_campaign_draft(
-    p_organization_id BIGINT,p_name TEXT,p_purpose TEXT,p_purpose_code TEXT,
-    p_target NUMERIC(14,2),p_start DATE,p_end DATE
+    p_organization_id BIGINT,p_name TEXT,p_purpose TEXT DEFAULT NULL,p_purpose_code TEXT DEFAULT NULL,
+    p_target NUMERIC(14,2) DEFAULT NULL,p_start DATE DEFAULT NULL,p_end DATE DEFAULT NULL
 ) RETURNS BIGINT LANGUAGE plpgsql AS $$
 DECLARE v_id BIGINT; v_actor TEXT;
 BEGIN
     v_actor := require_organization_role(p_organization_id,'CAMPAIGN_EDITOR');
+    IF NULLIF(BTRIM(p_name),'') IS NULL OR length(p_name) > 180 THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INVALID_CAMPAIGN_NAME';
+    END IF;
+    IF p_purpose_code IS NOT NULL AND NOT EXISTS (SELECT 1 FROM purpose_category WHERE purpose_code = p_purpose_code) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INVALID_PURPOSE_CODE';
+    END IF;
+    IF p_target IS NOT NULL AND p_target <= 0 THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INVALID_TARGET_AMOUNT';
+    END IF;
+    IF p_start IS NOT NULL AND p_end IS NOT NULL AND p_end < p_start THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INVALID_CAMPAIGN_DATES';
+    END IF;
     INSERT INTO campaign(organization_id,campaign_name,purpose,purpose_code,target_amount,start_date,end_date)
     VALUES (p_organization_id,p_name,p_purpose,p_purpose_code,p_target,p_start,p_end)
     RETURNING campaign_id INTO v_id;
@@ -164,11 +176,33 @@ $$;
 
 CREATE OR REPLACE FUNCTION submit_campaign(p_campaign_id BIGINT)
 RETURNS VOID LANGUAGE plpgsql AS $$
-DECLARE c campaign%ROWTYPE; v_actor TEXT; v_previous TEXT;
+DECLARE c campaign%ROWTYPE; v_actor TEXT; v_previous TEXT; v_org_status VARCHAR(20);
 BEGIN
     SELECT * INTO c FROM campaign WHERE campaign_id = p_campaign_id FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE = 'P1003', MESSAGE = 'CAMPAIGN_NOT_FOUND'; END IF;
     v_actor := require_organization_role(c.organization_id, 'CAMPAIGN_EDITOR');
+
+    SELECT verification_status INTO v_org_status FROM organization WHERE organization_id = c.organization_id;
+    IF v_org_status <> 'VERIFIED' THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1004', MESSAGE = 'ORGANIZATION_NOT_VERIFIED';
+    END IF;
+
+    IF c.campaign_name IS NULL OR length(btrim(c.campaign_name)) < 1 THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INCOMPLETE_CAMPAIGN_DRAFT';
+    END IF;
+    IF c.purpose IS NULL OR length(btrim(c.purpose)) < 10 THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INCOMPLETE_CAMPAIGN_DRAFT';
+    END IF;
+    IF c.purpose_code IS NULL THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INCOMPLETE_CAMPAIGN_DRAFT';
+    END IF;
+    IF c.target_amount IS NULL OR c.target_amount <= 0 THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INCOMPLETE_CAMPAIGN_DRAFT';
+    END IF;
+    IF c.start_date IS NULL OR c.end_date IS NULL OR c.end_date < c.start_date THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INCOMPLETE_CAMPAIGN_DRAFT';
+    END IF;
+
     IF c.campaign_status <> 'DRAFT' OR c.approval_status NOT IN ('PENDING','REJECTED') THEN
         RAISE EXCEPTION USING ERRCODE = 'P1004', MESSAGE = 'CAMPAIGN_NOT_SUBMITTABLE';
     END IF;
@@ -1234,18 +1268,109 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION register_organization(
+    p_name TEXT, p_reg_ref TEXT, p_email TEXT, p_phone TEXT, p_token_sha256 CHAR(64)
+) RETURNS BIGINT LANGUAGE plpgsql AS $$
+DECLARE v_org_id BIGINT; v_actor TEXT;
+BEGIN
+    IF NULLIF(BTRIM(p_name),'') IS NULL OR length(p_name) > 160 THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INVALID_ORGANIZATION_NAME';
+    END IF;
+    IF NULLIF(BTRIM(p_reg_ref),'') IS NULL OR length(p_reg_ref) > 100 THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INVALID_REGISTRATION_REF';
+    END IF;
+    IF p_token_sha256 IS NULL OR p_token_sha256 !~ '^[0-9a-f]{64}$' THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INVALID_APPLICANT_TOKEN';
+    END IF;
+    IF EXISTS (SELECT 1 FROM organization WHERE registration_ref = p_reg_ref) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1001', MESSAGE = 'DUPLICATE_REGISTRATION_REF';
+    END IF;
+
+    INSERT INTO organization(organization_name, registration_ref, email, phone, verification_status)
+    VALUES (p_name, p_reg_ref, p_email, p_phone, 'PENDING')
+    RETURNING organization.organization_id INTO v_org_id;
+
+    INSERT INTO organization_applicant_access(organization_id, token_sha256)
+    VALUES (v_org_id, p_token_sha256);
+
+    v_actor := 'applicant:' || p_token_sha256;
+    INSERT INTO organization_membership(organization_id, actor_id, membership_role)
+    VALUES (v_org_id, v_actor, 'CAMPAIGN_EDITOR');
+
+    PERFORM write_audit('ORGANIZATION_REGISTERED', 'organization', v_org_id::TEXT, NULL,
+        (SELECT to_jsonb(o) FROM organization o WHERE o.organization_id=v_org_id));
+
+    RETURN v_org_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION review_organization(
+    p_organization_id BIGINT, p_decision TEXT, p_reason TEXT
+) RETURNS VOID LANGUAGE plpgsql AS $$
+DECLARE o organization%ROWTYPE; v_actor TEXT;
+BEGIN
+    PERFORM require_platform_role('CAMPAIGN_REVIEWER');
+    v_actor := require_actor();
+    IF p_decision NOT IN ('VERIFIED','REJECTED') OR NULLIF(BTRIM(p_reason), '') IS NULL THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1005', MESSAGE = 'INVALID_ORGANIZATION_REVIEW';
+    END IF;
+    SELECT * INTO o FROM organization WHERE organization_id = p_organization_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1003', MESSAGE = 'ORGANIZATION_NOT_FOUND';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM organization_membership m
+        WHERE m.organization_id = p_organization_id AND m.actor_id = v_actor AND m.is_active
+    ) THEN
+        RAISE EXCEPTION USING ERRCODE = 'P1004', MESSAGE = 'REVIEWER_SEPARATION_VIOLATION';
+    END IF;
+
+    UPDATE organization
+    SET verification_status = p_decision,
+        verified_by = v_actor,
+        verified_at = CURRENT_TIMESTAMP,
+        review_reason = p_reason
+    WHERE organization_id = p_organization_id;
+
+    PERFORM write_audit('ORGANIZATION_' || p_decision, 'organization', p_organization_id::TEXT,
+        to_jsonb(o), (SELECT to_jsonb(x) FROM organization x WHERE x.organization_id=p_organization_id), p_reason);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION get_organization_review_queue(p_limit INTEGER, p_offset INTEGER)
+RETURNS TABLE(
+    organization_id BIGINT, organization_name VARCHAR(160), registration_ref VARCHAR(100),
+    email VARCHAR(254), phone VARCHAR(30), verification_status VARCHAR(20),
+    review_reason TEXT, created_at TIMESTAMPTZ
+) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+BEGIN
+    PERFORM assert_read_page(p_limit, p_offset);
+    PERFORM require_platform_role('CAMPAIGN_REVIEWER');
+    RETURN QUERY
+    SELECT o.organization_id, o.organization_name, o.registration_ref,
+           o.email, o.phone, o.verification_status, o.review_reason, o.created_at
+    FROM organization o
+    ORDER BY CASE WHEN o.verification_status = 'PENDING' THEN 0 ELSE 1 END,
+             o.created_at DESC, o.organization_id DESC
+    LIMIT p_limit + 1 OFFSET p_offset;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION get_actor_organizations()
-RETURNS TABLE(organization_id BIGINT, organization_name VARCHAR(160), roles TEXT[])
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+RETURNS TABLE(
+    organization_id BIGINT, organization_name VARCHAR(160), roles TEXT[],
+    verification_status VARCHAR(20), review_reason TEXT
+) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 DECLARE v_actor TEXT := require_actor();
 BEGIN
     RETURN QUERY
     SELECT o.organization_id, o.organization_name,
-           array_agg(m.membership_role::TEXT ORDER BY m.membership_role)
+           array_agg(m.membership_role::TEXT ORDER BY m.membership_role),
+           o.verification_status, o.review_reason
     FROM organization AS o
     JOIN organization_membership AS m ON m.organization_id=o.organization_id
     WHERE m.actor_id=v_actor AND m.is_active
-    GROUP BY o.organization_id, o.organization_name
+    GROUP BY o.organization_id, o.organization_name, o.verification_status, o.review_reason
     ORDER BY o.organization_name, o.organization_id;
 END;
 $$;
@@ -1426,5 +1551,10 @@ ALTER FUNCTION get_organization_beneficiaries(BIGINT,INTEGER,INTEGER)
     SECURITY DEFINER SET search_path=pg_catalog,public;
 ALTER FUNCTION get_registered_donation_history(INTEGER,INTEGER)
     SECURITY DEFINER SET search_path=pg_catalog,public;
-
+ALTER FUNCTION register_organization(TEXT,TEXT,TEXT,TEXT,CHAR(64))
+    SECURITY DEFINER SET search_path=pg_catalog,public;
+ALTER FUNCTION review_organization(BIGINT,TEXT,TEXT)
+    SECURITY DEFINER SET search_path=pg_catalog,public;
+ALTER FUNCTION get_organization_review_queue(INTEGER,INTEGER)
+    SECURITY DEFINER SET search_path=pg_catalog,public;
 COMMIT;

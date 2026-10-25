@@ -62,6 +62,15 @@ def list_review_queue(
     )
 
 
+def list_organization_review_queue(
+    limit: int, offset: int, actor_id: str, request_id: str,
+) -> tuple[list[dict[str, Any]], bool]:
+    return _page(
+        "SELECT * FROM get_organization_review_queue(%s,%s)", (limit, offset),
+        actor_id, request_id, ("organization_id",),
+    )
+
+
 def list_organization_beneficiaries(
     organization_id: int, limit: int, offset: int, actor_id: str, request_id: str,
 ) -> tuple[list[dict[str, Any]], bool]:

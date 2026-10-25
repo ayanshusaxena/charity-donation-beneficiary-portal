@@ -14,6 +14,7 @@ from app.schemas import (
     DisbursementDecisionInput,
     DisbursementPaymentInput,
     DisbursementRequestInput,
+    ReasonInput,
     StableId,
     WorkflowResult,
 )
@@ -23,6 +24,7 @@ from app.workflow_repository import (
     create_beneficiary,
     create_campaign,
     pay_disbursement,
+    request_campaign_closure,
     request_disbursement,
     review_campaign,
     update_campaign,
@@ -105,6 +107,22 @@ def activate_campaign_endpoint(
     settings_allow_workflows()
     campaign_workflow("activate_campaign", int(campaign_id), actor_id, request.state.request_id)
     return WorkflowResult(resource_id=campaign_id, status="ACTIVE")
+
+
+@router.post("/campaigns/{campaign_id}/closure-request", response_model=WorkflowResult, status_code=201,
+             responses=error_responses(401, 403, 404, 409, 422, 500, 503),
+             openapi_extra={"security": AUTHENTICATED_SECURITY})
+def request_campaign_closure_endpoint(
+    campaign_id: Annotated[StableId, Path()],
+    body: ReasonInput,
+    request: Request,
+    principal: Principal | None = Depends(optional_principal),
+) -> WorkflowResult:
+    """Submit an organization closure request for an active or paused campaign."""
+    actor_id = _actor(principal)
+    settings_allow_workflows()
+    req_id = request_campaign_closure(int(campaign_id), body.reason, actor_id, request.state.request_id)
+    return WorkflowResult(resource_id=req_id, status="PENDING")
 
 
 @router.post("/organizations/{organization_id}/beneficiaries", response_model=WorkflowResult, status_code=201,

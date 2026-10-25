@@ -107,6 +107,32 @@ def get_donation(donation_id: int, actor_id: str, guest_hash: str | None, reques
         return _owned_donation(connection, donation_id, guest_hash)
 
 
+def register_organization(
+    name: str, reg_ref: str, email: str | None, phone: str | None,
+    request_id: str,
+) -> tuple[str, str]:
+    import secrets
+    token = "dk_app_" + secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
+    actor_id = f"applicant:{token_hash}"
+    with workflow_connection(actor_id, request_id) as connection:
+        row = connection.execute(
+            "SELECT register_organization(%s,%s,%s,%s,%s) AS resource_id",
+            (name, reg_ref, email, phone, token_hash),
+        ).fetchone()
+    return str(row["resource_id"]), token
+
+
+def review_organization(
+    organization_id: int, decision: str, reason: str, actor_id: str, request_id: str,
+) -> None:
+    with workflow_connection(actor_id, request_id) as connection:
+        connection.execute(
+            "SELECT review_organization(%s,%s,%s)",
+            (organization_id, decision, reason),
+        )
+
+
 def create_campaign(organization_id: int, request: CampaignDraftInput, actor_id: str, request_id: str) -> str:
     with workflow_connection(actor_id, request_id) as connection:
         row = connection.execute(
@@ -204,3 +230,74 @@ def refund_donation(
             (donation_id, amount, refund_ref, reason, idempotency_key, digest),
         ).fetchone()
     return str(row["refund_id"]), row["replayed"]
+
+
+def request_campaign_closure(campaign_id: int, reason: str, actor_id: str, request_id: str) -> str:
+    with workflow_connection(actor_id, request_id) as connection:
+        row = connection.execute(
+            "SELECT request_campaign_closure(%s, %s) AS request_id",
+            (campaign_id, reason),
+        ).fetchone()
+    return str(row["request_id"])
+
+
+def review_campaign_closure_request(request_id: int, decision: str, reason: str, actor_id: str, req_id: str):
+    with workflow_connection(actor_id, req_id) as connection:
+        connection.execute(
+            "SELECT review_campaign_closure_request(%s, %s, %s)",
+            (request_id, decision, reason),
+        )
+
+
+def suspend_campaign(campaign_id: int, reason: str, actor_id: str, request_id: str):
+    with workflow_connection(actor_id, request_id) as connection:
+        connection.execute(
+            "SELECT suspend_campaign(%s, %s)",
+            (campaign_id, reason),
+        )
+
+
+def reopen_campaign(campaign_id: int, reason: str, actor_id: str, request_id: str):
+    with workflow_connection(actor_id, request_id) as connection:
+        connection.execute(
+            "SELECT reopen_campaign(%s, %s)",
+            (campaign_id, reason),
+        )
+
+
+def close_campaign(campaign_id: int, reason: str, actor_id: str, request_id: str):
+    with workflow_connection(actor_id, request_id) as connection:
+        connection.execute(
+            "SELECT change_campaign_status(%s, 'CLOSED', %s)",
+            (campaign_id, reason),
+        )
+
+
+def list_irb_campaign_oversight(
+    status_filter: str | None,
+    search: str | None,
+    limit: int,
+    offset: int,
+    actor_id: str,
+    request_id: str,
+) -> tuple[list[dict[str, Any]], bool]:
+    with actor_read_connection(actor_id, request_id) as connection:
+        rows = connection.execute(
+            "SELECT * FROM get_irb_campaign_oversight_list(%s, %s, %s, %s)",
+            (status_filter, search, limit + 1, offset),
+        ).fetchall()
+    has_more = len(rows) > limit
+    return rows[:limit], has_more
+
+
+def list_closure_requests(
+    organization_id: int | None,
+    actor_id: str,
+    request_id: str,
+) -> list[dict[str, Any]]:
+    with actor_read_connection(actor_id, request_id) as connection:
+        rows = connection.execute(
+            "SELECT * FROM get_closure_requests(%s)",
+            (organization_id,),
+        ).fetchall()
+    return rows

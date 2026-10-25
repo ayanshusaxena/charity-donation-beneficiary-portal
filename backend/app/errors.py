@@ -34,8 +34,10 @@ def database_error_response(exc: DatabaseRuleError) -> ApiError:
         if exc.message.endswith("NOT_FOUND"):
             return ApiError(404, "NOT_FOUND", "The requested resource was not found")
         return ApiError(404, "NOT_FOUND", "The requested resource is unavailable")
+    if exc.sqlstate == "P1004":
+        return ApiError(403, "ORGANIZATION_NOT_VERIFIED", "The organization must be verified before campaigns can be submitted")
     if exc.sqlstate == "P1005":
-        return ApiError(422, "VALIDATION_ERROR", "The request does not meet the database workflow rules")
+        return ApiError(422, "INCOMPLETE_CAMPAIGN_DRAFT", exc.message if exc.message else "The campaign draft is missing required fields")
     if exc.sqlstate.startswith("23"):
         return ApiError(409, "CONFLICT", "The request conflicts with persisted integrity rules")
     if exc.sqlstate.startswith("P10") or exc.sqlstate.startswith("P0001"):

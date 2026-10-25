@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path, Query, Request
 
 from app.api.common import AUTHENTICATED_SECURITY, error_responses
-from app.auth import Principal, optional_principal
+from app.auth import Principal, optional_principal, settings_allow_workflows
 from app.errors import ApiError
 from app.organization_repository import (
     get_organization_campaign,
@@ -15,15 +15,45 @@ from app.organization_repository import (
 from app.schemas import (
     BeneficiaryOut,
     BeneficiaryPage,
+    ClosureRequestOut,
+    ClosureRequestPage,
     OrganizationCampaignOut,
     OrganizationCampaignPage,
     OrganizationDashboardOut,
     OrganizationListOut,
+    OrganizationRegisterInput,
+    OrganizationRegisterOut,
     StableId,
+)
+from app.workflow_repository import (
+    list_closure_requests,
+    register_organization as _register_org,
 )
 
 
 router = APIRouter(prefix="/api/v1", tags=["Organization reads"])
+
+
+@router.post("/organizations/register", response_model=OrganizationRegisterOut, status_code=201,
+             responses=error_responses(409, 422, 500, 503))
+def register_organization_endpoint(
+    body: OrganizationRegisterInput,
+    request: Request,
+) -> OrganizationRegisterOut:
+    """Register a new organization (sandbox onboarding). No authentication required.
+    Returns a one-time applicant token — store it; it cannot be recovered."""
+    settings_allow_workflows()
+    org_id, token = _register_org(
+        body.organization_name, body.registration_ref, body.email,
+        body.phone, request.state.request_id,
+    )
+    return OrganizationRegisterOut(
+        organization_id=org_id,
+        organization_name=body.organization_name,
+        verification_status="PENDING",
+        applicant_access_token=token,
+    )
+
 
 
 def _actor(principal: Principal | None) -> str:
@@ -113,3 +143,16 @@ def get_organization_beneficiaries(
     )
     return _page([BeneficiaryOut.model_validate(row) for row in rows],
                  has_more, limit, offset, BeneficiaryPage)
+
+
+@router.get("/organizations/{organization_id}/closure-requests", response_model=ClosureRequestPage,
+            responses=error_responses(401, 403, 422, 500, 503),
+            openapi_extra={"security": AUTHENTICATED_SECURITY})
+def get_organization_closure_requests(
+    organization_id: Annotated[StableId, Path()], request: Request,
+    principal: Principal | None = Depends(optional_principal),
+) -> ClosureRequestPage:
+    actor_id = _actor(principal)
+    rows = list_closure_requests(int(organization_id), actor_id, request.state.request_id)
+    items = [ClosureRequestOut.model_validate(row) for row in rows]
+    return ClosureRequestPage(items=items)

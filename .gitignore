@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Production build outputs
+dist/
+frontend/dist/
+
+# Python virtual environments & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+backend/__pycache__/
+backend/*/__pycache__/
+backend/*/*/__pycache__/
+.venv/
+.venv*/
+backend/.venv/
+backend/.venv*/
+*.egg-info/
+.coverage
+
+# Pytest & test cache
+.pytest_cache/
+backend/.pytest_cache/
+
+# Environment files and credentials
+.env
+.env.*
+*.conf
+!database/**/*.conf
+
+# OS & Editor artifacts
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+.vscode/
+.idea/
